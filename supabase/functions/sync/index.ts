@@ -224,6 +224,48 @@ async function handlePushFile(
   return json({ status: 'accepted', remote_version: newVersion, updated_at: now })
 }
 
+async function handleDeleteWorkspace(
+  db: SupabaseClient, userId: string, workspaceId: string,
+): Promise<Response> {
+  const { data: ws, error: wsErr } = await db
+    .from('workspaces')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('id', workspaceId)
+    .maybeSingle()
+  if (wsErr) throw wsErr
+  if (!ws) return json({ error: 'Workspace not found' }, 404)
+
+  const { data: files, error: listErr } = await db
+    .from('file_metadata')
+    .select('path')
+    .eq('user_id', userId)
+    .eq('workspace_id', workspaceId)
+  if (listErr) throw listErr
+
+  if (files && files.length > 0) {
+    const keys = files.map(f => `${userId}/${workspaceId}/${f.path}`)
+    const { error: rmErr } = await db.storage.from(BUCKET).remove(keys)
+    if (rmErr) throw rmErr
+  }
+
+  const { error: metaErr } = await db
+    .from('file_metadata')
+    .delete()
+    .eq('user_id', userId)
+    .eq('workspace_id', workspaceId)
+  if (metaErr) throw metaErr
+
+  const { error: delErr } = await db
+    .from('workspaces')
+    .delete()
+    .eq('user_id', userId)
+    .eq('id', workspaceId)
+  if (delErr) throw delErr
+
+  return json({ status: 'deleted' })
+}
+
 async function handleDeleteFile(
   db: SupabaseClient,
   userId: string,
@@ -312,6 +354,13 @@ Deno.serve(async (req) => {
     if (subpath === '/workspaces') {
       if (req.method === 'GET') return await handleListWorkspaces(db, userId)
       if (req.method === 'POST') return await handleCreateWorkspace(db, userId, req)
+    }
+
+    // /:account/workspaces/:id
+    const wsOnlyMatch = subpath.match(/^\/workspaces\/([^/]+)$/)
+    if (wsOnlyMatch) {
+      const workspaceId = decodeURIComponent(wsOnlyMatch[1])
+      if (req.method === 'DELETE') return await handleDeleteWorkspace(db, userId, workspaceId)
     }
 
     // /:account/workspaces/:workspaceId/files[/:path]

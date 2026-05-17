@@ -98,6 +98,7 @@ This applies to:
 
 - `GET /workspaces`
 - `POST /workspaces`
+- `DELETE /workspaces/{workspace_id}`
 - `GET /workspaces/{workspace_id}/files`
 - `GET /workspaces/{workspace_id}/files/{path}`
 - `PUT /workspaces/{workspace_id}/files/{path}`
@@ -154,6 +155,30 @@ Response:
 ```
 
 If the requested name cannot be used as the ID, the server should generate a stable ID and return it.
+
+### Delete Workspace
+
+```http
+DELETE {sync_root_url}/workspaces/{workspace_id}
+```
+
+This permanently deletes the remote workspace and all files currently stored under it.
+
+Accepted responses:
+
+```http
+204 No Content
+```
+
+or:
+
+```json
+{
+  "status": "deleted"
+}
+```
+
+The server should remove both the workspace entry from `GET /workspaces` and the workspace's remote file contents.
 
 ## File Paths
 
@@ -340,7 +365,8 @@ Recommended status codes:
 
 - `200 OK` for successful list, pull, push, delete, and create responses with JSON bodies.
 - `201 Created` for created workspaces or files.
-- `204 No Content` is tolerated for accepted push/delete, but JSON with the new `remote_version` is strongly preferred.
+- `204 No Content` is recommended for successful workspace deletion.
+- `204 No Content` is tolerated for accepted file push/delete, but JSON with the new `remote_version` is strongly preferred.
 - `400 Bad Request` for invalid paths or invalid payloads.
 - `404 Not Found` for missing workspace or file.
 - `409 Conflict` for version mismatches.
@@ -357,7 +383,7 @@ object key: {account_id}/{workspace_id}/{workspace_relative_path}
 
 Use object metadata, ETag, generation, or a custom metadata field as `remote_version`. The only strict requirement is that it changes on every accepted write.
 
-You can implement `GET /workspaces` and `POST /workspaces` with a small metadata file if you do not want a database yet, for example:
+You can implement `GET /workspaces`, `POST /workspaces`, and `DELETE /workspaces/{workspace_id}` with a small metadata file if you do not want a database yet, for example:
 
 ```text
 {account_id}/workspaces.json
