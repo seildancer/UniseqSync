@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem *)",
+      "Bash(git -C \"C:\\\\Users\\\\1004w\\\\Documents\\\\develop\\\\UniseqSync\" log --oneline --all)"
+    ]
+  }
+}
