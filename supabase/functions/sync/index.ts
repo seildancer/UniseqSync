@@ -63,6 +63,19 @@ function routePath(url: URL): string {
   return p || '/'
 }
 
+// Encode a workspace-relative file path for use as a Supabase Storage key.
+// Storage rejects non-ASCII characters even when percent-encoded (it decodes
+// before validating). Non-ASCII segments are base64url-encoded instead, which
+// produces only [A-Za-z0-9_-] characters that the backend never decodes.
+function encodeStoragePath(filePath: string): string {
+  return filePath.split('/').map(segment => {
+    if (!/[^\x00-\x7F]/.test(segment)) return segment
+    const bytes = new TextEncoder().encode(segment)
+    return btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+  }).join('/')
+}
+
 // Workspace-relative file paths must be clean, forward-slash separated, no
 // empty segments, no dot or dotdot components, no backslashes.
 function validFilePath(path: string): boolean {
@@ -139,7 +152,7 @@ async function handlePullFile(
   if (metaErr) throw metaErr
   if (!meta) return json({ error: 'File not found' }, 404)
 
-  const storageKey = `${userId}/${workspaceId}/${filePath}`
+  const storageKey = `${userId}/${workspaceId}/${encodeStoragePath(filePath)}`
   const { data: blob, error: dlErr } = await db.storage.from(BUCKET).download(storageKey)
   if (dlErr) throw dlErr
 
@@ -215,7 +228,7 @@ async function handlePushFile(
 
   // DB row committed — now persist content. If this fails the client retries,
   // which re-runs the conditional update against the new version and re-uploads.
-  const storageKey = `${userId}/${workspaceId}/${filePath}`
+  const storageKey = `${userId}/${workspaceId}/${encodeStoragePath(filePath)}`
   const { error: upErr } = await db.storage
     .from(BUCKET)
     .upload(storageKey, content, { upsert: true, contentType: 'application/octet-stream' })
@@ -244,7 +257,7 @@ async function handleDeleteWorkspace(
   if (listErr) throw listErr
 
   if (files && files.length > 0) {
-    const keys = files.map(f => `${userId}/${workspaceId}/${f.path}`)
+    const keys = files.map(f => `${userId}/${workspaceId}/${encodeStoragePath(f.path)}`)
     const { error: rmErr } = await db.storage.from(BUCKET).remove(keys)
     if (rmErr) throw rmErr
   }
@@ -295,7 +308,7 @@ async function handleDeleteFile(
     }, 409)
   }
 
-  const storageKey = `${userId}/${workspaceId}/${filePath}`
+  const storageKey = `${userId}/${workspaceId}/${encodeStoragePath(filePath)}`
   const { error: rmErr } = await db.storage.from(BUCKET).remove([storageKey])
   if (rmErr) throw rmErr
 
