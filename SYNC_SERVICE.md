@@ -96,6 +96,7 @@ Authorization: Bearer <token>
 
 This applies to:
 
+- `DELETE /`
 - `GET /workspaces`
 - `POST /workspaces`
 - `DELETE /workspaces/{workspace_id}`
@@ -108,10 +109,35 @@ Recommended status codes:
 
 - `401 Unauthorized` when a token is missing, expired, malformed, or otherwise invalid.
 - `403 Forbidden` when the token is valid but does not have access to the account root or workspace.
+- `404 Not Found` is acceptable when deleting an account that no longer exists.
 
 The token format is up to the service. A Supabase-backed service can validate a Supabase JWT, validate an opaque token stored server-side, or validate a signed token issued by the sync service. The client treats the token as an opaque string.
 
 ## Workspace Endpoints
+
+### Delete Account
+
+```http
+DELETE {sync_root_url}
+```
+
+This permanently deletes the authenticated account's remote sync data, including every remote workspace and every remote file under that account. It does not delete the local workspace on the device; the local workspace remains in place and becomes unsynced.
+
+Accepted responses:
+
+```http
+204 No Content
+```
+
+or:
+
+```json
+{
+  "status": "deleted"
+}
+```
+
+If the service also owns authentication, it may delete the auth user after the sync data cleanup completes. Even if auth-user deletion is asynchronous, the sync resources should become inaccessible immediately after this request succeeds.
 
 ### List Workspaces
 

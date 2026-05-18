@@ -237,9 +237,11 @@ async function handlePushFile(
   return json({ status: 'accepted', remote_version: newVersion, updated_at: now })
 }
 
-async function handleDeleteWorkspace(
-  db: SupabaseClient, userId: string, workspaceId: string,
-): Promise<Response> {
+async function deleteWorkspaceData(
+  db: SupabaseClient,
+  userId: string,
+  workspaceId: string,
+): Promise<Response | null> {
   const { data: ws, error: wsErr } = await db
     .from('workspaces')
     .select('id')
@@ -275,6 +277,35 @@ async function handleDeleteWorkspace(
     .eq('user_id', userId)
     .eq('id', workspaceId)
   if (delErr) throw delErr
+
+  return null
+}
+
+async function handleDeleteWorkspace(
+  db: SupabaseClient, userId: string, workspaceId: string,
+): Promise<Response> {
+  const notFound = await deleteWorkspaceData(db, userId, workspaceId)
+  if (notFound) return notFound
+  return json({ status: 'deleted' })
+}
+
+async function handleDeleteAccount(
+  db: SupabaseClient,
+  userId: string,
+): Promise<Response> {
+  const { data: workspaces, error: wsErr } = await db
+    .from('workspaces')
+    .select('id')
+    .eq('user_id', userId)
+  if (wsErr) throw wsErr
+
+  for (const workspace of workspaces ?? []) {
+    const maybeResponse = await deleteWorkspaceData(db, userId, workspace.id)
+    if (maybeResponse) return maybeResponse
+  }
+
+  const { error: userErr } = await db.auth.admin.deleteUser(userId)
+  if (userErr) throw userErr
 
   return json({ status: 'deleted' })
 }
@@ -363,6 +394,10 @@ Deno.serve(async (req) => {
   const db = admin()
 
   try {
+    if ((subpath === '/' || subpath === '') && req.method === 'DELETE') {
+      return await handleDeleteAccount(db, userId)
+    }
+
     // /:account/workspaces
     if (subpath === '/workspaces') {
       if (req.method === 'GET') return await handleListWorkspaces(db, userId)
