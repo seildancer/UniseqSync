@@ -4,6 +4,8 @@ This document describes the HTTP interface a sync service must implement for Uni
 
 Uniseq is still a file-first app. The client writes normal workspace files locally, scans the workspace in the background, and syncs file bytes against a remote service. The sync service does not need to understand pages, blocks, references, journals, or editor semantics.
 
+This document is intentionally written against the current client behavior in this repo. If you are building a third-party backend, treat this file as the compatibility contract for the current app, not as a future protocol wishlist.
+
 ## Model
 
 The service is rooted at an account or namespace URL:
@@ -73,6 +75,12 @@ Authenticated services should return:
 
 `login_url`, `token_url`, and `instructions` are optional. The current client uses `login_url` as an external link and asks the user to paste a bearer token manually. Later clients may use `token_url` for a browser callback, device-code flow, or refresh flow.
 
+For the current client:
+
+- `login_url` is used only as a link the user can open manually.
+- `token_url` is informational only. The current client does not call it.
+- The client does not expect discovery to return a token.
+
 For compatibility, a missing discovery endpoint (`404 Not Found`), an empty response body, or a JSON `null` response is treated as:
 
 ```json
@@ -113,6 +121,8 @@ Recommended status codes:
 
 The token format is up to the service. A Supabase-backed service can validate a Supabase JWT, validate an opaque token stored server-side, or validate a signed token issued by the sync service. The client treats the token as an opaque string.
 
+For third-party backends, the safest model today is a manually pasted bearer token with a reasonably long lifetime. The current app does not provide a generic custom-provider refresh flow. If a custom backend returns `401` during sync, the user may need to paste a fresh token manually.
+
 ## Workspace Endpoints
 
 ### Delete Account
@@ -138,6 +148,8 @@ or:
 ```
 
 If the service also owns authentication, it may delete the auth user after the sync data cleanup completes. Even if auth-user deletion is asynchronous, the sync resources should become inaccessible immediately after this request succeeds.
+
+Note: the current UI exposes account deletion only for the built-in Uniseq provider. Custom backends may still implement this endpoint for completeness, but the main custom-provider flow does not rely on it.
 
 ### List Workspaces
 
@@ -250,6 +262,8 @@ Every remote file must expose an opaque version string:
 
 Do not rely on client-side modified times for correctness.
 
+`remote_version` should also change on accepted deletes when the path still participates in conflict detection or compare-and-set logic. In practice, treat it as the server's compare-and-set token for the current state of a path.
+
 ## File Endpoints
 
 All file endpoints live under:
@@ -317,10 +331,11 @@ Raw bytes are recommended.
 ```http
 PUT {sync_root_url}/workspaces/{workspace_id}/files/{path}
 X-Uniseq-Base-Remote-Version: v1
-Content-Type: application/octet-stream
 
 <file bytes>
 ```
+
+The current client may omit `Content-Type` on `PUT`. Do not require `Content-Type: application/octet-stream` to be present for compatibility.
 
 `X-Uniseq-Base-Remote-Version` is optional. It is omitted when the client is creating a file that it has never seen on the server.
 
@@ -338,6 +353,8 @@ Accepted response:
   "updated_at": "2026-05-16T12:01:00Z"
 }
 ```
+
+This JSON response with the server's real `remote_version` is the recommended success response. The current client works best when it receives the real server-side version token immediately after every accepted write.
 
 Conflict response:
 
@@ -392,11 +409,42 @@ Recommended status codes:
 - `200 OK` for successful list, pull, push, delete, and create responses with JSON bodies.
 - `201 Created` for created workspaces or files.
 - `204 No Content` is recommended for successful workspace deletion.
-- `204 No Content` is tolerated for accepted file push/delete, but JSON with the new `remote_version` is strongly preferred.
+- Do not use `204 No Content` for accepted file push/delete if you can avoid it. The current client is much more reliable when accepted file writes and deletes return JSON with the real new `remote_version`.
 - `400 Bad Request` for invalid paths or invalid payloads.
 - `404 Not Found` for missing workspace or file.
 - `409 Conflict` for version mismatches.
 - `500` or `503` for server/storage failures.
+
+## Backend Compatibility Checklist
+
+A backend is compatible with the current app if all of the following are true:
+
+- `GET {sync_root_url}/.well-known/uniseq-sync` returns either `404`, empty body, `null`, or a valid discovery document.
+- If auth is required, discovery returns `"auth": { "type": "bearer" }`.
+- The backend accepts `Authorization: Bearer <token>` on all workspace and file endpoints.
+- `GET /workspaces` returns a JSON array of `{ id, name, updated_at? }`.
+- `POST /workspaces` accepts `{ "name": "..." }` and returns `{ id, name, updated_at? }`.
+- `DELETE /workspaces/{workspace_id}` succeeds with either `204` or a small JSON success body.
+- `GET /workspaces/{workspace_id}/files` returns every existing file with `path`, `remote_version`, and `size`.
+- `GET /workspaces/{workspace_id}/files/{path}` returns either raw bytes plus `X-Uniseq-Remote-Version`, or JSON including `content`.
+- `PUT /workspaces/{workspace_id}/files/{path}` uses compare-and-set semantics against `X-Uniseq-Base-Remote-Version` when provided.
+- `DELETE /workspaces/{workspace_id}/files/{path}` uses the same compare-and-set semantics and may read the base version from the header or the JSON body.
+- Accepted file `PUT` and `DELETE` responses return JSON with the real new `remote_version`.
+- Conflict responses use `409 Conflict` and return `{ "status": "conflict", "current": { ... } }`.
+- Paths reject empty segments, `.`, `..`, and backslashes.
+- `remote_version` changes every time remote file contents change.
+
+## Current Client Limitations
+
+These are current app limitations, not backend requirements:
+
+- Custom auth is bearer-token only.
+- Bearer token entry is manual.
+- `token_url` is not used programmatically.
+- Custom providers do not have a first-class account deletion UI.
+- Generic custom-provider token refresh is not implemented.
+
+See [SYNC_SERVICE_SMOKE_TEST.md](SYNC_SERVICE_SMOKE_TEST.md) for a minimal end-to-end checklist you can run against a backend before trying it in the app.
 
 ## Minimal Supabase Storage Mapping
 
