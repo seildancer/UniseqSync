@@ -5,7 +5,7 @@
 <h1 align="center">UniseqSync</h1>
 
 <p align="center">
-  A minimal Supabase-based sync backend for Uniseq.
+  A Supabase-based sync backend for Uniseq.
 </p>
 
 UniseqSync implements the HTTP sync contract used by the Uniseq client. It stores workspace files remotely, tracks per-file version tokens for conflict detection, and stays deliberately unaware of note semantics. It does not parse pages, blocks, journals, or Markdown structure. It syncs bytes.
@@ -84,7 +84,3 @@ That file is the important reference if you want to:
 - run this backend against the current Uniseq client
 - build another compatible backend
 - change the protocol without breaking client behavior
-
-## Status
-
-UniseqSync is intentionally small and implementation-driven. It is a practical backend for Uniseq's current file sync model, not a general-purpose sync platform.
